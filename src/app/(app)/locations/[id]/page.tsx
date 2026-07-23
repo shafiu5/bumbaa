@@ -1,0 +1,346 @@
+'use client'
+
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useParams } from 'next/navigation'
+import Link from 'next/link'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import { ArrowLeft, Plus, X } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { stockColorClass } from '@/lib/stock'
+import DateRangeFilter from '@/components/DateRangeFilter'
+import type { Location } from '@/lib/types'
+
+type DeliveryRow = { id: string; quantity: number; delivered_at: string; notes: string }
+type EntryRow = {
+  id: string
+  quantity: number
+  filled_at: string
+  notes: string
+  vessels: { name: string } | null
+}
+
+type TimelineItem = {
+  id: string
+  kind: 'delivery' | 'dispense'
+  date: string
+  quantity: number
+  label: string
+}
+
+export default function LocationDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const supabase = createClient()
+  const [location, setLocation] = useState<Location | null>(null)
+  const [deliveries, setDeliveries] = useState<DeliveryRow[]>([])
+  const [entries, setEntries] = useState<EntryRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [showAdd, setShowAdd] = useState(false)
+  const [quantity, setQuantity] = useState('')
+  const [deliveredAt, setDeliveredAt] = useState(() => new Date().toISOString().slice(0, 10))
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const [thresholdInput, setThresholdInput] = useState('')
+  const [savingThreshold, setSavingThreshold] = useState(false)
+  const [thresholdError, setThresholdError] = useState<string | null>(null)
+
+  const [chartFrom, setChartFrom] = useState('')
+  const [chartTo, setChartTo] = useState('')
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (id) load()
+  }, [id])
+
+  async function load() {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const [locationRes, deliveriesRes, entriesRes] = await Promise.all([
+        supabase.from('locations').select('*').eq('id', id).maybeSingle(),
+        supabase
+          .from('deliveries')
+          .select('id, quantity, delivered_at, notes')
+          .eq('location_id', id)
+          .order('delivered_at', { ascending: false }),
+        supabase
+          .from('fuel_entries')
+          .select('id, quantity, filled_at, notes, vessels(name)')
+          .eq('location_id', id)
+          .order('filled_at', { ascending: false }),
+      ])
+      if (locationRes.error) throw locationRes.error
+      if (deliveriesRes.error) throw deliveriesRes.error
+      if (entriesRes.error) throw entriesRes.error
+      const loadedLocation = locationRes.data as Location | null
+      setLocation(loadedLocation)
+      setThresholdInput(loadedLocation?.low_stock_threshold?.toString() ?? '')
+      setDeliveries((deliveriesRes.data as DeliveryRow[]) ?? [])
+      setEntries((entriesRes.data as unknown as EntryRow[]) ?? [])
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load this location.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function saveThreshold(e: FormEvent) {
+    e.preventDefault()
+    setSavingThreshold(true)
+    setThresholdError(null)
+    const value = thresholdInput.trim() === '' ? null : Number(thresholdInput)
+    const { error } = await supabase
+      .from('locations')
+      .update({ low_stock_threshold: value })
+      .eq('id', id)
+    setSavingThreshold(false)
+    if (error) {
+      setThresholdError(error.message)
+      return
+    }
+    setLocation((prev) => (prev ? { ...prev, low_stock_threshold: value } : prev))
+  }
+
+  async function addDelivery(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
+    const { error } = await supabase.from('deliveries').insert({
+      location_id: id,
+      quantity: Number(quantity),
+      delivered_at: deliveredAt,
+      notes,
+    })
+    setSaving(false)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    setQuantity('')
+    setNotes('')
+    setShowAdd(false)
+    load()
+  }
+
+  const timeline: TimelineItem[] = useMemo(() => {
+    const d: TimelineItem[] = deliveries.map((x) => ({
+      id: x.id,
+      kind: 'delivery',
+      date: x.delivered_at,
+      quantity: x.quantity,
+      label: 'Delivery',
+    }))
+    const e: TimelineItem[] = entries.map((x) => ({
+      id: x.id,
+      kind: 'dispense',
+      date: x.filled_at,
+      quantity: x.quantity,
+      label: x.vessels?.name ?? 'Vessel',
+    }))
+    return [...d, ...e].sort((a, b) => (a.date < b.date ? -1 : 1))
+  }, [deliveries, entries])
+
+  const chartData = useMemo(() => {
+    let running = 0
+    return timeline.map((t) => {
+      running += t.kind === 'delivery' ? t.quantity : -t.quantity
+      return { date: t.date, stock: running }
+    })
+  }, [timeline])
+
+  const currentStock = chartData.length ? chartData[chartData.length - 1].stock : 0
+
+  const filteredChartData = useMemo(
+    () =>
+      chartData.filter(
+        (d) => (!chartFrom || d.date >= chartFrom) && (!chartTo || d.date <= chartTo)
+      ),
+    [chartData, chartFrom, chartTo]
+  )
+
+  if (loading) {
+    return <main className="max-w-2xl mx-auto px-4 py-6 text-gray-400 dark:text-gray-500">Loading…</main>
+  }
+  if (loadError) {
+    return (
+      <main className="max-w-2xl mx-auto px-4 py-6">
+        <div className="rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-4 space-y-2">
+          <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+          <button onClick={load} className="text-sm font-medium text-sky-600 dark:text-sky-400">
+            Retry
+          </button>
+        </div>
+      </main>
+    )
+  }
+  if (!location) {
+    return (
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        <Link
+          href="/locations"
+          className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400"
+        >
+          <ArrowLeft size={16} strokeWidth={1.75} />
+          Locations
+        </Link>
+        <p className="text-gray-400 dark:text-gray-500">Location not found.</p>
+      </main>
+    )
+  }
+
+  return (
+    <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+      <Link
+        href="/locations"
+        className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400"
+      >
+        <ArrowLeft size={16} strokeWidth={1.75} />
+        Locations
+      </Link>
+      <div>
+        <h1 className="text-2xl font-bold">{location.name}</h1>
+        {location.notes && <p className="text-sm text-gray-500 dark:text-gray-400">{location.notes}</p>}
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Current stock:{' '}
+          <span className={`font-medium ${stockColorClass(currentStock, location.low_stock_threshold)}`}>
+            {currentStock.toLocaleString()} L
+          </span>
+          {location.low_stock_threshold != null && currentStock <= location.low_stock_threshold && (
+            <span className="ml-2 text-xs font-medium text-amber-600 dark:text-amber-400">Low stock</span>
+          )}
+        </p>
+      </div>
+
+      <section>
+        <h2 className="font-semibold mb-2">Low stock alert</h2>
+        <form
+          onSubmit={saveThreshold}
+          className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 flex items-end gap-3"
+        >
+          <div className="flex-1">
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Alert when stock falls to or below (litres)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={thresholdInput}
+              onChange={(e) => setThresholdInput(e.target.value)}
+              placeholder="No alert set"
+              className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            />
+          </div>
+          <button
+            disabled={savingThreshold}
+            className="rounded-lg bg-sky-600 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            {savingThreshold ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+        {thresholdError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{thresholdError}</p>}
+      </section>
+
+      <section>
+        <h2 className="font-semibold mb-2">Stock over time</h2>
+        <DateRangeFilter from={chartFrom} to={chartTo} onFromChange={setChartFrom} onToChange={setChartTo} />
+        {filteredChartData.length === 0 ? (
+          <p className="text-sm text-gray-400 dark:text-gray-500">No activity in this range.</p>
+        ) : (
+          <div className="h-56 rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={filteredChartData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-neutral-800" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(v: number) => [`${v.toLocaleString()} L`, 'Stock']} />
+                <Line type="stepAfter" dataKey="stock" stroke="#0284c7" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="font-semibold">Activity</h2>
+          <button
+            onClick={() => setShowAdd((v) => !v)}
+            className="flex items-center gap-1.5 rounded-lg bg-sky-600 text-white px-4 py-2 text-sm font-medium"
+          >
+            {showAdd ? <X size={16} strokeWidth={1.75} /> : <Plus size={16} strokeWidth={1.75} />}
+            {showAdd ? 'Cancel' : 'Log delivery'}
+          </button>
+        </div>
+
+        {showAdd && (
+          <form
+            onSubmit={addDelivery}
+            className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-3 mb-3"
+          >
+            <input
+              required
+              type="number"
+              min="0"
+              step="0.01"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              placeholder="Quantity delivered (litres)"
+              className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            />
+            <input
+              required
+              type="date"
+              value={deliveredAt}
+              onChange={(e) => setDeliveredAt(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            />
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Notes (optional)"
+              rows={2}
+              className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            />
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            <button
+              disabled={saving}
+              className="w-full rounded-lg bg-sky-600 text-white py-2 font-medium disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save delivery'}
+            </button>
+          </form>
+        )}
+
+        {timeline.length === 0 ? (
+          <p className="text-sm text-gray-400 dark:text-gray-500">No activity logged yet.</p>
+        ) : (
+          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
+            {[...timeline].reverse().map((t) => (
+              <div key={`${t.kind}-${t.id}`} className="flex items-center justify-between px-4 py-3 text-sm">
+                <div>
+                  <p>{t.kind === 'delivery' ? 'Delivery' : `Dispensed → ${t.label}`}</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">{t.date}</p>
+                </div>
+                <span className="font-medium">
+                  {t.kind === 'delivery' ? '+' : '−'}
+                  {t.quantity.toLocaleString()} L
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </main>
+  )
+}
