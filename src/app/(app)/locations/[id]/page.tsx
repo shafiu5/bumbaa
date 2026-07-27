@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { ArrowLeft, Plus, X } from 'lucide-react'
+import { ArrowLeft, Plus, Sliders, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { stockColorClass } from '@/lib/stock'
 import DateRangeFilter from '@/components/DateRangeFilter'
@@ -26,10 +26,11 @@ type EntryRow = {
   notes: string
   vessels: { name: string } | null
 }
+type AdjustmentRow = { id: string; quantity: number; adjusted_at: string; notes: string }
 
 type TimelineItem = {
   id: string
-  kind: 'delivery' | 'dispense'
+  kind: 'delivery' | 'dispense' | 'adjustment'
   date: string
   quantity: number
   label: string
@@ -41,6 +42,7 @@ export default function LocationDetailPage() {
   const [location, setLocation] = useState<Location | null>(null)
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([])
   const [entries, setEntries] = useState<EntryRow[]>([])
+  const [adjustments, setAdjustments] = useState<AdjustmentRow[]>([])
   const [loading, setLoading] = useState(true)
 
   const [showAdd, setShowAdd] = useState(false)
@@ -49,6 +51,14 @@ export default function LocationDetailPage() {
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [showAdjust, setShowAdjust] = useState(false)
+  const [adjustDirection, setAdjustDirection] = useState<'add' | 'remove'>('add')
+  const [adjustQuantity, setAdjustQuantity] = useState('')
+  const [adjustedAt, setAdjustedAt] = useState(() => new Date().toISOString().slice(0, 10))
+  const [adjustNotes, setAdjustNotes] = useState('')
+  const [savingAdjust, setSavingAdjust] = useState(false)
+  const [adjustError, setAdjustError] = useState<string | null>(null)
 
   const [thresholdInput, setThresholdInput] = useState('')
   const [savingThreshold, setSavingThreshold] = useState(false)
@@ -66,7 +76,7 @@ export default function LocationDetailPage() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [locationRes, deliveriesRes, entriesRes] = await Promise.all([
+      const [locationRes, deliveriesRes, entriesRes, adjustmentsRes] = await Promise.all([
         supabase.from('locations').select('*').eq('id', id).maybeSingle(),
         supabase
           .from('deliveries')
@@ -78,15 +88,22 @@ export default function LocationDetailPage() {
           .select('id, quantity, filled_at, notes, vessels(name)')
           .eq('location_id', id)
           .order('filled_at', { ascending: false }),
+        supabase
+          .from('adjustments')
+          .select('id, quantity, adjusted_at, notes')
+          .eq('location_id', id)
+          .order('adjusted_at', { ascending: false }),
       ])
       if (locationRes.error) throw locationRes.error
       if (deliveriesRes.error) throw deliveriesRes.error
       if (entriesRes.error) throw entriesRes.error
+      if (adjustmentsRes.error) throw adjustmentsRes.error
       const loadedLocation = locationRes.data as Location | null
       setLocation(loadedLocation)
       setThresholdInput(loadedLocation?.low_stock_threshold?.toString() ?? '')
       setDeliveries((deliveriesRes.data as DeliveryRow[]) ?? [])
       setEntries((entriesRes.data as unknown as EntryRow[]) ?? [])
+      setAdjustments((adjustmentsRes.data as AdjustmentRow[]) ?? [])
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load this location.')
     } finally {
@@ -132,6 +149,28 @@ export default function LocationDetailPage() {
     load()
   }
 
+  async function addAdjustment(e: FormEvent) {
+    e.preventDefault()
+    setSavingAdjust(true)
+    setAdjustError(null)
+    const signedQuantity = adjustDirection === 'add' ? Number(adjustQuantity) : -Number(adjustQuantity)
+    const { error } = await supabase.from('adjustments').insert({
+      location_id: id,
+      quantity: signedQuantity,
+      adjusted_at: adjustedAt,
+      notes: adjustNotes,
+    })
+    setSavingAdjust(false)
+    if (error) {
+      setAdjustError(error.message)
+      return
+    }
+    setAdjustQuantity('')
+    setAdjustNotes('')
+    setShowAdjust(false)
+    load()
+  }
+
   const timeline: TimelineItem[] = useMemo(() => {
     const d: TimelineItem[] = deliveries.map((x) => ({
       id: x.id,
@@ -147,13 +186,20 @@ export default function LocationDetailPage() {
       quantity: x.quantity,
       label: x.vessels?.name ?? 'Vessel',
     }))
-    return [...d, ...e].sort((a, b) => (a.date < b.date ? -1 : 1))
-  }, [deliveries, entries])
+    const a: TimelineItem[] = adjustments.map((x) => ({
+      id: x.id,
+      kind: 'adjustment',
+      date: x.adjusted_at,
+      quantity: x.quantity,
+      label: x.notes || (x.quantity >= 0 ? 'Stock added' : 'Stock removed'),
+    }))
+    return [...d, ...e, ...a].sort((a, b) => (a.date < b.date ? -1 : 1))
+  }, [deliveries, entries, adjustments])
 
   const chartData = useMemo(() => {
     let running = 0
     return timeline.map((t) => {
-      running += t.kind === 'delivery' ? t.quantity : -t.quantity
+      running += t.kind === 'dispense' ? -t.quantity : t.quantity
       return { date: t.date, stock: running }
     })
   }, [timeline])
@@ -274,13 +320,28 @@ export default function LocationDetailPage() {
       <section>
         <div className="flex items-center justify-between mb-2">
           <h2 className="font-semibold">Activity</h2>
-          <button
-            onClick={() => setShowAdd((v) => !v)}
-            className="flex items-center gap-1.5 rounded-lg bg-sky-600 text-white px-4 py-2 text-sm font-medium"
-          >
-            {showAdd ? <X size={16} strokeWidth={1.75} /> : <Plus size={16} strokeWidth={1.75} />}
-            {showAdd ? 'Cancel' : 'Log delivery'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setShowAdjust(false)
+                setShowAdd((v) => !v)
+              }}
+              className="flex items-center gap-1.5 rounded-lg bg-sky-600 text-white px-4 py-2 text-sm font-medium"
+            >
+              {showAdd ? <X size={16} strokeWidth={1.75} /> : <Plus size={16} strokeWidth={1.75} />}
+              {showAdd ? 'Cancel' : 'Log delivery'}
+            </button>
+            <button
+              onClick={() => {
+                setShowAdd(false)
+                setShowAdjust((v) => !v)
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium"
+            >
+              {showAdjust ? <X size={16} strokeWidth={1.75} /> : <Sliders size={16} strokeWidth={1.75} />}
+              {showAdjust ? 'Cancel' : 'Adjust stock'}
+            </button>
+          </div>
         </div>
 
         {showAdd && (
@@ -322,6 +383,72 @@ export default function LocationDetailPage() {
           </form>
         )}
 
+        {showAdjust && (
+          <form
+            onSubmit={addAdjustment}
+            className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-3 mb-3"
+          >
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Use this to correct stock without a delivery or fill — e.g. a physical recount or spillage.
+            </p>
+            <div className="flex rounded-lg border border-gray-300 dark:border-neutral-700 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setAdjustDirection('add')}
+                className={`flex-1 py-2 text-sm font-medium ${
+                  adjustDirection === 'add'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-white dark:bg-neutral-900 text-gray-600 dark:text-gray-400'
+                }`}
+              >
+                Add stock
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdjustDirection('remove')}
+                className={`flex-1 py-2 text-sm font-medium ${
+                  adjustDirection === 'remove'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-white dark:bg-neutral-900 text-gray-600 dark:text-gray-400'
+                }`}
+              >
+                Remove stock
+              </button>
+            </div>
+            <input
+              required
+              type="number"
+              min="0"
+              step="0.01"
+              value={adjustQuantity}
+              onChange={(e) => setAdjustQuantity(e.target.value)}
+              placeholder="Quantity (litres)"
+              className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            />
+            <input
+              required
+              type="date"
+              value={adjustedAt}
+              onChange={(e) => setAdjustedAt(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            />
+            <textarea
+              value={adjustNotes}
+              onChange={(e) => setAdjustNotes(e.target.value)}
+              placeholder="Reason (optional, e.g. physical recount)"
+              rows={2}
+              className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            />
+            {adjustError && <p className="text-sm text-red-600 dark:text-red-400">{adjustError}</p>}
+            <button
+              disabled={savingAdjust}
+              className="w-full rounded-lg bg-sky-600 text-white py-2 font-medium disabled:opacity-50"
+            >
+              {savingAdjust ? 'Saving…' : 'Save adjustment'}
+            </button>
+          </form>
+        )}
+
         {timeline.length === 0 ? (
           <p className="text-sm text-gray-400 dark:text-gray-500">No activity logged yet.</p>
         ) : (
@@ -329,12 +456,18 @@ export default function LocationDetailPage() {
             {[...timeline].reverse().map((t) => (
               <div key={`${t.kind}-${t.id}`} className="flex items-center justify-between px-4 py-3 text-sm">
                 <div>
-                  <p>{t.kind === 'delivery' ? 'Delivery' : `Dispensed → ${t.label}`}</p>
+                  <p>
+                    {t.kind === 'delivery'
+                      ? 'Delivery'
+                      : t.kind === 'dispense'
+                        ? `Dispensed → ${t.label}`
+                        : `Adjustment: ${t.label}`}
+                  </p>
                   <p className="text-xs text-gray-400 dark:text-gray-500">{t.date}</p>
                 </div>
                 <span className="font-medium">
-                  {t.kind === 'delivery' ? '+' : '−'}
-                  {t.quantity.toLocaleString()} L
+                  {t.kind === 'dispense' ? '−' : t.quantity < 0 ? '−' : '+'}
+                  {Math.abs(t.quantity).toLocaleString()} L
                 </span>
               </div>
             ))}

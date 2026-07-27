@@ -32,12 +32,22 @@ export type FuelEntry = {
   created_at: string
 }
 
+export type Adjustment = {
+  id: string
+  location_id: string
+  quantity: number
+  adjusted_at: string
+  notes: string
+  created_at: string
+}
+
 export type LocationStock = {
   location_id: string
   name: string
   low_stock_threshold: number | null
   total_delivered: number
   total_dispensed: number
+  total_adjusted: number
   current_stock: number
 }
 

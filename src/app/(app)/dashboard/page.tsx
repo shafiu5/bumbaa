@@ -22,7 +22,7 @@ const VESSEL_COLORS = ['#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#
 
 type Activity = {
   id: string
-  kind: 'delivery' | 'fuel_entry'
+  kind: 'delivery' | 'fuel_entry' | 'adjustment'
   date: string
   quantity: number
   location_name: string
@@ -52,11 +52,17 @@ type EntryRow = {
   locations: { name: string } | null
   vessels: { name: string } | null
 }
+type AdjustmentRow = {
+  id: string
+  quantity: number
+  adjusted_at: string
+  locations: { name: string } | null
+}
 
 async function fetchDashboardData(
   supabase: ReturnType<typeof createClient>
 ): Promise<DashboardData> {
-  const [stockRes, usageRes, deliveriesRes, entriesRes] = await Promise.all([
+  const [stockRes, usageRes, deliveriesRes, entriesRes, adjustmentsRes] = await Promise.all([
     supabase.from('location_stock').select('*').order('name'),
     supabase.from('vessel_usage').select('*').order('total_used', { ascending: false }),
     supabase
@@ -67,14 +73,20 @@ async function fetchDashboardData(
       .from('fuel_entries')
       .select('id, quantity, filled_at, vessel_id, locations(name), vessels(name)')
       .order('filled_at', { ascending: true }),
+    supabase
+      .from('adjustments')
+      .select('id, quantity, adjusted_at, locations(name)')
+      .order('adjusted_at', { ascending: true }),
   ])
   if (stockRes.error) throw stockRes.error
   if (usageRes.error) throw usageRes.error
   if (deliveriesRes.error) throw deliveriesRes.error
   if (entriesRes.error) throw entriesRes.error
+  if (adjustmentsRes.error) throw adjustmentsRes.error
 
   const deliveries = (deliveriesRes.data as unknown as DeliveryRow[]) ?? []
   const entries = (entriesRes.data as unknown as EntryRow[]) ?? []
+  const adjustments = (adjustmentsRes.data as unknown as AdjustmentRow[]) ?? []
   const usage = (usageRes.data as VesselUsage[]) ?? []
 
   const deliveryActivity: Activity[] = deliveries.map((d) => ({
@@ -93,7 +105,17 @@ async function fetchDashboardData(
     location_name: f.locations?.name ?? '—',
     vessel_name: f.vessels?.name ?? '—',
   }))
-  const activity = [...deliveryActivity, ...entryActivity].sort((a, b) => (a.date < b.date ? 1 : -1))
+  const adjustmentActivity: Activity[] = adjustments.map((a) => ({
+    id: a.id,
+    kind: 'adjustment',
+    date: a.adjusted_at,
+    quantity: a.quantity,
+    location_name: a.locations?.name ?? '—',
+    vessel_name: null,
+  }))
+  const activity = [...deliveryActivity, ...entryActivity, ...adjustmentActivity].sort((a, b) =>
+    a.date < b.date ? 1 : -1
+  )
 
   const deliveriesByDate = new Map<string, DeliveryRow[]>()
   for (const d of deliveries) {
@@ -103,8 +125,14 @@ async function fetchDashboardData(
   for (const e of entries) {
     entriesByDate.set(e.filled_at, [...(entriesByDate.get(e.filled_at) ?? []), e])
   }
+  const adjustmentsByDate = new Map<string, AdjustmentRow[]>()
+  for (const a of adjustments) {
+    adjustmentsByDate.set(a.adjusted_at, [...(adjustmentsByDate.get(a.adjusted_at) ?? []), a])
+  }
 
-  const allDates = [...new Set([...deliveriesByDate.keys(), ...entriesByDate.keys()])].sort()
+  const allDates = [
+    ...new Set([...deliveriesByDate.keys(), ...entriesByDate.keys(), ...adjustmentsByDate.keys()]),
+  ].sort()
 
   let runningStock = 0
   const vesselRunning: Record<string, number> = Object.fromEntries(usage.map((v) => [v.vessel_id, 0]))
@@ -114,6 +142,7 @@ async function fetchDashboardData(
       runningStock -= e.quantity
       vesselRunning[e.vessel_id] = (vesselRunning[e.vessel_id] ?? 0) + e.quantity
     }
+    for (const a of adjustmentsByDate.get(date) ?? []) runningStock += a.quantity
     return { date, stock: runningStock, ...vesselRunning }
   })
 
@@ -408,13 +437,15 @@ export default function DashboardPage() {
                       <p>
                         {a.kind === 'delivery'
                           ? `Delivery → ${a.location_name}`
-                          : `${a.vessel_name} ← ${a.location_name}`}
+                          : a.kind === 'fuel_entry'
+                            ? `${a.vessel_name} ← ${a.location_name}`
+                            : `Adjustment → ${a.location_name}`}
                       </p>
                       <p className="text-xs text-gray-400 dark:text-gray-500">{a.date}</p>
                     </div>
                     <span className="font-medium">
-                      {a.kind === 'delivery' ? '+' : '−'}
-                      {a.quantity.toLocaleString()} L
+                      {a.kind === 'fuel_entry' ? '−' : a.quantity < 0 ? '−' : '+'}
+                      {Math.abs(a.quantity).toLocaleString()} L
                     </span>
                   </div>
                 ))}
