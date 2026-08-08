@@ -27,6 +27,8 @@ type Activity = {
   quantity: number
   location_name: string
   vessel_name: string | null
+  cost: number | null
+  avgCostPerUnit: number | null
 }
 
 type ChartRow = { date: string; stock: number; [vesselId: string]: number | string }
@@ -41,7 +43,9 @@ type DashboardData = {
 type DeliveryRow = {
   id: string
   quantity: number
+  total_cost: number | null
   delivered_at: string
+  location_id: string
   locations: { name: string } | null
 }
 type EntryRow = {
@@ -49,6 +53,7 @@ type EntryRow = {
   quantity: number
   filled_at: string
   vessel_id: string
+  location_id: string
   locations: { name: string } | null
   vessels: { name: string } | null
 }
@@ -67,11 +72,11 @@ async function fetchDashboardData(
     supabase.from('vessel_usage').select('*').order('total_used', { ascending: false }),
     supabase
       .from('deliveries')
-      .select('id, quantity, delivered_at, locations(name)')
+      .select('id, quantity, total_cost, delivered_at, location_id, locations(name)')
       .order('delivered_at', { ascending: true }),
     supabase
       .from('fuel_entries')
-      .select('id, quantity, filled_at, vessel_id, locations(name), vessels(name)')
+      .select('id, quantity, filled_at, vessel_id, location_id, locations(name), vessels(name)')
       .order('filled_at', { ascending: true }),
     supabase
       .from('adjustments')
@@ -89,6 +94,19 @@ async function fetchDashboardData(
   const adjustments = (adjustmentsRes.data as unknown as AdjustmentRow[]) ?? []
   const usage = (usageRes.data as VesselUsage[]) ?? []
 
+  const costedByLocation = new Map<string, { totalCost: number; totalQty: number }>()
+  for (const d of deliveries) {
+    if (d.total_cost == null) continue
+    const agg = costedByLocation.get(d.location_id) ?? { totalCost: 0, totalQty: 0 }
+    agg.totalCost += d.total_cost
+    agg.totalQty += d.quantity
+    costedByLocation.set(d.location_id, agg)
+  }
+  const avgCostByLocation = new Map<string, number>()
+  for (const [locationId, agg] of costedByLocation) {
+    if (agg.totalQty > 0) avgCostByLocation.set(locationId, agg.totalCost / agg.totalQty)
+  }
+
   const deliveryActivity: Activity[] = deliveries.map((d) => ({
     id: d.id,
     kind: 'delivery',
@@ -96,15 +114,22 @@ async function fetchDashboardData(
     quantity: d.quantity,
     location_name: d.locations?.name ?? '—',
     vessel_name: null,
+    cost: d.total_cost,
+    avgCostPerUnit: null,
   }))
-  const entryActivity: Activity[] = entries.map((f) => ({
-    id: f.id,
-    kind: 'fuel_entry',
-    date: f.filled_at,
-    quantity: f.quantity,
-    location_name: f.locations?.name ?? '—',
-    vessel_name: f.vessels?.name ?? '—',
-  }))
+  const entryActivity: Activity[] = entries.map((f) => {
+    const avgCostPerUnit = avgCostByLocation.get(f.location_id) ?? null
+    return {
+      id: f.id,
+      kind: 'fuel_entry',
+      date: f.filled_at,
+      quantity: f.quantity,
+      location_name: f.locations?.name ?? '—',
+      vessel_name: f.vessels?.name ?? '—',
+      cost: avgCostPerUnit != null ? f.quantity * avgCostPerUnit : null,
+      avgCostPerUnit,
+    }
+  })
   const adjustmentActivity: Activity[] = adjustments.map((a) => ({
     id: a.id,
     kind: 'adjustment',
@@ -112,6 +137,8 @@ async function fetchDashboardData(
     quantity: a.quantity,
     location_name: a.locations?.name ?? '—',
     vessel_name: null,
+    cost: null,
+    avgCostPerUnit: null,
   }))
   const activity = [...deliveryActivity, ...entryActivity, ...adjustmentActivity].sort((a, b) =>
     a.date < b.date ? 1 : -1
@@ -432,7 +459,7 @@ export default function DashboardPage() {
             ) : (
               <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
                 {filteredActivity.map((a) => (
-                  <div key={`${a.kind}-${a.id}`} className="flex items-center justify-between px-4 py-3 text-sm">
+                  <div key={`${a.kind}-${a.id}`} className="flex items-start justify-between px-4 py-3 text-sm">
                     <div>
                       <p>
                         {a.kind === 'delivery'
@@ -443,10 +470,34 @@ export default function DashboardPage() {
                       </p>
                       <p className="text-xs text-gray-400 dark:text-gray-500">{a.date}</p>
                     </div>
-                    <span className="font-medium">
-                      {a.kind === 'fuel_entry' ? '−' : a.quantity < 0 ? '−' : '+'}
-                      {Math.abs(a.quantity).toLocaleString()} L
-                    </span>
+                    <div className="text-right">
+                      <span className="font-medium">
+                        {a.kind === 'fuel_entry' ? '−' : a.quantity < 0 ? '−' : '+'}
+                        {Math.abs(a.quantity).toLocaleString()} L
+                      </span>
+                      {a.kind === 'delivery' && a.cost != null && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                          Total{' '}
+                          {a.cost.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </p>
+                      )}
+                      {a.kind === 'fuel_entry' && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                          {a.cost != null
+                            ? `≈ ${a.cost.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })} (avg ${a.avgCostPerUnit!.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}/L)`
+                            : 'No priced deliveries yet'}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

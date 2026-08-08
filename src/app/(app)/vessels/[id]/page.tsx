@@ -25,6 +25,7 @@ type EntryRow = {
   location_id: string
   locations: { name: string } | null
 }
+type LocationAvgCostRow = { location_id: string; avg_cost_per_unit: number | null }
 
 export default function VesselDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -32,6 +33,7 @@ export default function VesselDetailPage() {
   const [vessel, setVessel] = useState<Vessel | null>(null)
   const [entries, setEntries] = useState<EntryRow[]>([])
   const [locations, setLocations] = useState<Location[]>([])
+  const [avgCostByLocation, setAvgCostByLocation] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
 
   const [showAdd, setShowAdd] = useState(false)
@@ -54,7 +56,7 @@ export default function VesselDetailPage() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [vesselRes, entriesRes, locationsRes] = await Promise.all([
+      const [vesselRes, entriesRes, locationsRes, avgCostRes] = await Promise.all([
         supabase.from('vessels').select('*').eq('id', id).maybeSingle(),
         supabase
           .from('fuel_entries')
@@ -62,13 +64,22 @@ export default function VesselDetailPage() {
           .eq('vessel_id', id)
           .order('filled_at', { ascending: false }),
         supabase.from('locations').select('*').order('name'),
+        supabase.from('location_avg_cost').select('location_id, avg_cost_per_unit'),
       ])
       if (vesselRes.error) throw vesselRes.error
       if (entriesRes.error) throw entriesRes.error
       if (locationsRes.error) throw locationsRes.error
+      if (avgCostRes.error) throw avgCostRes.error
       setVessel(vesselRes.data as Vessel)
       setEntries((entriesRes.data as unknown as EntryRow[]) ?? [])
       setLocations((locationsRes.data as Location[]) ?? [])
+      setAvgCostByLocation(
+        new Map(
+          ((avgCostRes.data as LocationAvgCostRow[]) ?? [])
+            .filter((r) => r.avg_cost_per_unit != null)
+            .map((r) => [r.location_id, r.avg_cost_per_unit as number])
+        )
+      )
       if (!locationId && locationsRes.data?.[0]) {
         setLocationId(locationsRes.data[0].id)
       }
@@ -251,18 +262,35 @@ export default function VesselDetailPage() {
           <p className="text-sm text-gray-400 dark:text-gray-500">No fuel logged yet.</p>
         ) : (
           <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
-            {entries.map((e) => (
-              <div key={e.id} className="flex items-center justify-between px-4 py-3 text-sm">
-                <div>
-                  <p>{e.locations?.name ?? '—'}</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
-                    {e.filled_at}
-                    {e.notes ? ` · ${e.notes}` : ''}
-                  </p>
+            {entries.map((e) => {
+              const avgCostPerUnit = avgCostByLocation.get(e.location_id) ?? null
+              const cost = avgCostPerUnit != null ? Number(e.quantity) * avgCostPerUnit : null
+              return (
+                <div key={e.id} className="flex items-start justify-between px-4 py-3 text-sm">
+                  <div>
+                    <p>{e.locations?.name ?? '—'}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      {e.filled_at}
+                      {e.notes ? ` · ${e.notes}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-medium">{Number(e.quantity).toLocaleString()} L</span>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                      {cost != null
+                        ? `≈ ${cost.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })} (avg ${avgCostPerUnit!.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}/L)`
+                        : 'No priced deliveries yet'}
+                    </p>
+                  </div>
                 </div>
-                <span className="font-medium">{Number(e.quantity).toLocaleString()} L</span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </section>
