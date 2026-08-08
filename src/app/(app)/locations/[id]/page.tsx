@@ -12,13 +12,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { ArrowLeft, Plus, Sliders, X } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus, Sliders, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { stockColorClass } from '@/lib/stock'
 import DateRangeFilter from '@/components/DateRangeFilter'
 import type { Location } from '@/lib/types'
 
-type DeliveryRow = { id: string; quantity: number; delivered_at: string; notes: string }
+type DeliveryRow = { id: string; quantity: number; total_cost: number | null; delivered_at: string; notes: string }
 type EntryRow = {
   id: string
   quantity: number
@@ -34,6 +34,7 @@ type TimelineItem = {
   date: string
   quantity: number
   label: string
+  totalCost?: number | null
 }
 
 export default function LocationDetailPage() {
@@ -69,6 +70,11 @@ export default function LocationDetailPage() {
   const [chartTo, setChartTo] = useState('')
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null)
+  const [editPricePerLiter, setEditPricePerLiter] = useState('')
+  const [savingEditPrice, setSavingEditPrice] = useState(false)
+  const [editPriceError, setEditPriceError] = useState<string | null>(null)
+
   useEffect(() => {
     if (id) load()
   }, [id])
@@ -81,7 +87,7 @@ export default function LocationDetailPage() {
         supabase.from('locations').select('*').eq('id', id).maybeSingle(),
         supabase
           .from('deliveries')
-          .select('id, quantity, delivered_at, notes')
+          .select('id, quantity, total_cost, delivered_at, notes')
           .eq('location_id', id)
           .order('delivered_at', { ascending: false }),
         supabase
@@ -179,6 +185,38 @@ export default function LocationDetailPage() {
     load()
   }
 
+  function startEditPrice(delivery: { id: string; quantity: number; totalCost?: number | null }) {
+    setEditingDeliveryId(delivery.id)
+    setEditPriceError(null)
+    setEditPricePerLiter(
+      delivery.totalCost != null ? (delivery.totalCost / delivery.quantity).toString() : ''
+    )
+  }
+
+  function cancelEditPrice() {
+    setEditingDeliveryId(null)
+    setEditPricePerLiter('')
+    setEditPriceError(null)
+  }
+
+  async function saveEditPrice(delivery: { id: string; quantity: number }) {
+    setSavingEditPrice(true)
+    setEditPriceError(null)
+    const newTotalCost =
+      editPricePerLiter.trim() === '' ? null : Number(editPricePerLiter) * delivery.quantity
+    const { error } = await supabase
+      .from('deliveries')
+      .update({ total_cost: newTotalCost })
+      .eq('id', delivery.id)
+    setSavingEditPrice(false)
+    if (error) {
+      setEditPriceError(error.message)
+      return
+    }
+    cancelEditPrice()
+    load()
+  }
+
   const timeline: TimelineItem[] = useMemo(() => {
     const d: TimelineItem[] = deliveries.map((x) => ({
       id: x.id,
@@ -186,6 +224,7 @@ export default function LocationDetailPage() {
       date: x.delivered_at,
       quantity: x.quantity,
       label: 'Delivery',
+      totalCost: x.total_cost,
     }))
     const e: TimelineItem[] = entries.map((x) => ({
       id: x.id,
@@ -476,21 +515,88 @@ export default function LocationDetailPage() {
         ) : (
           <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
             {[...timeline].reverse().map((t) => (
-              <div key={`${t.kind}-${t.id}`} className="flex items-center justify-between px-4 py-3 text-sm">
-                <div>
-                  <p>
-                    {t.kind === 'delivery'
-                      ? 'Delivery'
-                      : t.kind === 'dispense'
-                        ? `Dispensed → ${t.label}`
-                        : `Adjustment: ${t.label}`}
-                  </p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">{t.date}</p>
+              <div key={`${t.kind}-${t.id}`} className="px-4 py-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p>
+                      {t.kind === 'delivery'
+                        ? 'Delivery'
+                        : t.kind === 'dispense'
+                          ? `Dispensed → ${t.label}`
+                          : `Adjustment: ${t.label}`}
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">{t.date}</p>
+                    {t.kind === 'delivery' && editingDeliveryId !== t.id && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                        {t.totalCost != null ? (
+                          <>
+                            {(t.totalCost / t.quantity).toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                            /L · Total{' '}
+                            {t.totalCost.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </>
+                        ) : (
+                          'No price set'
+                        )}{' '}
+                        <button
+                          type="button"
+                          onClick={() => startEditPrice(t)}
+                          className="inline-flex items-center gap-0.5 text-sky-600 dark:text-sky-400 ml-1"
+                        >
+                          <Pencil size={11} strokeWidth={1.75} />
+                          {t.totalCost != null ? 'Edit' : 'Add price'}
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                  <span className="font-medium">
+                    {t.kind === 'dispense' ? '−' : t.quantity < 0 ? '−' : '+'}
+                    {Math.abs(t.quantity).toLocaleString()} L
+                  </span>
                 </div>
-                <span className="font-medium">
-                  {t.kind === 'dispense' ? '−' : t.quantity < 0 ? '−' : '+'}
-                  {Math.abs(t.quantity).toLocaleString()} L
-                </span>
+
+                {t.kind === 'delivery' && editingDeliveryId === t.id && (
+                  <div className="mt-2 flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Price per litre
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        autoFocus
+                        value={editPricePerLiter}
+                        onChange={(e) => setEditPricePerLiter(e.target.value)}
+                        placeholder="Price per litre"
+                        className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={savingEditPrice}
+                      onClick={() => saveEditPrice(t)}
+                      className="rounded-lg bg-sky-600 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                    >
+                      {savingEditPrice ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEditPrice}
+                      className="rounded-lg border border-gray-300 dark:border-neutral-700 px-3 py-1.5 text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {t.kind === 'delivery' && editingDeliveryId === t.id && editPriceError && (
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">{editPriceError}</p>
+                )}
               </div>
             ))}
           </div>
