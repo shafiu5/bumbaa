@@ -525,7 +525,7 @@ export default function LocationDetailPage() {
           <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
             {[...timeline].reverse().map((t) => (
               <div key={`${t.kind}-${t.id}`} className="px-4 py-3 text-sm">
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between">
                   <div>
                     <p>
                       {t.kind === 'delivery'
@@ -562,6 +562,12 @@ export default function LocationDetailPage() {
                         </button>
                       </p>
                     )}
+                  </div>
+                  <div className="text-right">
+                    <span className="font-medium">
+                      {t.kind === 'dispense' ? '−' : t.quantity < 0 ? '−' : '+'}
+                      {Math.abs(t.quantity).toLocaleString()} L
+                    </span>
                     {t.kind === 'dispense' && (
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         {t.totalCost != null
@@ -576,10 +582,6 @@ export default function LocationDetailPage() {
                       </p>
                     )}
                   </div>
-                  <span className="font-medium">
-                    {t.kind === 'dispense' ? '−' : t.quantity < 0 ? '−' : '+'}
-                    {Math.abs(t.quantity).toLocaleString()} L
-                  </span>
                 </div>
 
                 {t.kind === 'delivery' && editingDeliveryId === t.id && (
