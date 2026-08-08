@@ -47,6 +47,7 @@ export default function LocationDetailPage() {
 
   const [showAdd, setShowAdd] = useState(false)
   const [quantity, setQuantity] = useState('')
+  const [pricePerLiter, setPricePerLiter] = useState('')
   const [deliveredAt, setDeliveredAt] = useState(() => new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
@@ -128,6 +129,11 @@ export default function LocationDetailPage() {
     setLocation((prev) => (prev ? { ...prev, low_stock_threshold: value } : prev))
   }
 
+  const computedTotalCost =
+    pricePerLiter.trim() !== '' && quantity.trim() !== ''
+      ? Number(pricePerLiter) * Number(quantity)
+      : null
+
   async function addDelivery(e: FormEvent) {
     e.preventDefault()
     setSaving(true)
@@ -135,6 +141,7 @@ export default function LocationDetailPage() {
     const { error } = await supabase.from('deliveries').insert({
       location_id: id,
       quantity: Number(quantity),
+      total_cost: computedTotalCost,
       delivered_at: deliveredAt,
       notes,
     })
@@ -144,6 +151,7 @@ export default function LocationDetailPage() {
       return
     }
     setQuantity('')
+    setPricePerLiter('')
     setNotes('')
     setShowAdd(false)
     load()
@@ -359,6 +367,20 @@ export default function LocationDetailPage() {
               placeholder="Quantity delivered (litres)"
               className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
             />
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={pricePerLiter}
+              onChange={(e) => setPricePerLiter(e.target.value)}
+              placeholder="Price per litre (optional)"
+              className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            />
+            {computedTotalCost != null && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Total: <span className="font-medium text-gray-900 dark:text-gray-100">{computedTotalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </p>
+            )}
             <input
               required
               type="date"

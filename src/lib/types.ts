@@ -17,6 +17,7 @@ export type Delivery = {
   id: string
   location_id: string
   quantity: number
+  total_cost: number | null
   delivered_at: string
   notes: string
   created_at: string
@@ -56,4 +57,20 @@ export type VesselUsage = {
   name: string
   total_used: number
   fill_count: number
+}
+
+export type LocationAvgCost = {
+  location_id: string
+  avg_cost_per_unit: number | null
+}
+
+export type FuelEntryCost = {
+  id: string
+  vessel_id: string
+  location_id: string
+  filled_at: string
+  quantity: number
+  unit_cost: number | null
+  cost: number | null
+  notes: string
 }
