@@ -217,6 +217,14 @@ export default function LocationDetailPage() {
     load()
   }
 
+  const avgCostPerUnit = useMemo(() => {
+    const costed = deliveries.filter((d) => d.total_cost != null)
+    const totalQty = costed.reduce((sum, d) => sum + d.quantity, 0)
+    if (totalQty === 0) return null
+    const totalCost = costed.reduce((sum, d) => sum + (d.total_cost ?? 0), 0)
+    return totalCost / totalQty
+  }, [deliveries])
+
   const timeline: TimelineItem[] = useMemo(() => {
     const d: TimelineItem[] = deliveries.map((x) => ({
       id: x.id,
@@ -232,6 +240,7 @@ export default function LocationDetailPage() {
       date: x.filled_at,
       quantity: x.quantity,
       label: x.vessels?.name ?? 'Vessel',
+      totalCost: avgCostPerUnit != null ? x.quantity * avgCostPerUnit : null,
     }))
     const a: TimelineItem[] = adjustments.map((x) => ({
       id: x.id,
@@ -241,7 +250,7 @@ export default function LocationDetailPage() {
       label: x.notes || (x.quantity >= 0 ? 'Stock added' : 'Stock removed'),
     }))
     return [...d, ...e, ...a].sort((a, b) => (a.date < b.date ? -1 : 1))
-  }, [deliveries, entries, adjustments])
+  }, [deliveries, entries, adjustments, avgCostPerUnit])
 
   const chartData = useMemo(() => {
     let running = 0
@@ -551,6 +560,19 @@ export default function LocationDetailPage() {
                           <Pencil size={11} strokeWidth={1.75} />
                           {t.totalCost != null ? 'Edit' : 'Add price'}
                         </button>
+                      </p>
+                    )}
+                    {t.kind === 'dispense' && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                        {t.totalCost != null
+                          ? `≈ ${t.totalCost.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })} (at avg ${avgCostPerUnit!.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}/L)`
+                          : 'No priced deliveries yet'}
                       </p>
                     )}
                   </div>
