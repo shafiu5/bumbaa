@@ -401,7 +401,7 @@ export default function LocationDetailPage() {
               <LineChart data={filteredChartData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-neutral-800" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                 <Tooltip formatter={(v: number) => [`${v.toLocaleString()} L`, 'Stock']} />
                 <Line type="stepAfter" dataKey="stock" stroke="#0284c7" strokeWidth={2} dot={false} />
               </LineChart>

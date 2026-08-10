@@ -186,7 +186,7 @@ export default function VesselDetailPage() {
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-neutral-800" />
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                 <Tooltip formatter={(v: number) => [`${v.toLocaleString()} L`, 'Used']} />
                 <Bar dataKey="total" fill="#0284c7" radius={[4, 4, 0, 0]} />
               </BarChart>
