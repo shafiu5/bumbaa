@@ -432,8 +432,8 @@ export default function DashboardPage() {
             {vesselUsageInRange.length === 0 || vesselUsageInRange.every((v) => v.total === 0) ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">No fuel used in this range.</p>
             ) : (
-              <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
-                <div className="h-48">
+              <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 flex items-center gap-4">
+                <div className="h-40 w-40 shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -454,17 +454,17 @@ export default function DashboardPage() {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="mt-3 divide-y divide-gray-100 dark:divide-neutral-800">
+                <div className="flex-1 min-w-0 divide-y divide-gray-100 dark:divide-neutral-800">
                   {vesselUsageInRange.map((v) => (
                     <div key={v.vesselId} className="flex items-center justify-between py-2 text-sm">
-                      <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-2 min-w-0">
                         <span
                           className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
                           style={{ backgroundColor: vesselColor(v.vesselId) }}
                         />
-                        {v.name}
+                        <span className="truncate">{v.name}</span>
                       </span>
-                      <span className="font-medium">{v.total.toLocaleString()} L</span>
+                      <span className="font-medium shrink-0 ml-2">{v.total.toLocaleString()} L</span>
                     </div>
                   ))}
                 </div>
