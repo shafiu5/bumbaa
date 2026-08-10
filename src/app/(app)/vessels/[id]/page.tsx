@@ -14,7 +14,7 @@ import {
 } from 'recharts'
 import { ArrowLeft, Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { currentMonthRange } from '@/lib/dateRange'
+import { lastNMonthsRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
 import type { Location, Vessel } from '@/lib/types'
 
@@ -46,8 +46,8 @@ export default function VesselDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [chartFrom, setChartFrom] = useState(() => currentMonthRange().from)
-  const [chartTo, setChartTo] = useState(() => currentMonthRange().to)
+  const [chartFrom, setChartFrom] = useState(() => lastNMonthsRange(6).from)
+  const [chartTo, setChartTo] = useState(() => lastNMonthsRange(6).to)
 
   useEffect(() => {
     if (id) load()

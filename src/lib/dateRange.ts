@@ -11,3 +11,10 @@ export function currentMonthRange(): { from: string; to: string } {
   const to = new Date(now.getFullYear(), now.getMonth() + 1, 0)
   return { from: toISODate(from), to: toISODate(to) }
 }
+
+export function lastNMonthsRange(n: number): { from: string; to: string } {
+  const now = new Date()
+  const from = new Date(now.getFullYear(), now.getMonth() - (n - 1), 1)
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return { from: toISODate(from), to: toISODate(to) }
+}
