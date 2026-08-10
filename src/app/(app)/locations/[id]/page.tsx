@@ -522,7 +522,7 @@ export default function LocationDetailPage() {
         {timeline.length === 0 ? (
           <p className="text-sm text-gray-400 dark:text-gray-500">No activity logged yet.</p>
         ) : (
-          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
+          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800 overflow-hidden">
             {[...timeline].reverse().map((t) => (
               <div key={`${t.kind}-${t.id}`} className="px-4 py-3 text-sm">
                 <div className="flex items-start justify-between">

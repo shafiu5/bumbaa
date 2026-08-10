@@ -261,7 +261,7 @@ export default function VesselDetailPage() {
         {entries.length === 0 ? (
           <p className="text-sm text-gray-400 dark:text-gray-500">No fuel logged yet.</p>
         ) : (
-          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
+          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800 overflow-hidden">
             {entries.map((e) => {
               const avgCostPerUnit = avgCostByLocation.get(e.location_id) ?? null
               const cost = avgCostPerUnit != null ? Number(e.quantity) * avgCostPerUnit : null

@@ -427,12 +427,12 @@ export default function DashboardPage() {
                 No locations yet. <Link href="/locations" className="text-sky-600 dark:text-sky-400">Add one</Link>.
               </p>
             ) : (
-              <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
+              <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800 overflow-hidden">
                 {stock.map((s) => (
                   <Link
                     key={s.location_id}
                     href={`/locations/${s.location_id}`}
-                    className="flex items-center justify-between px-4 py-3"
+                    className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors"
                   >
                     <span>{s.name}</span>
                     <span className={`font-medium ${stockColorClass(s.current_stock, s.low_stock_threshold)}`}>
@@ -457,7 +457,7 @@ export default function DashboardPage() {
                 {activityFrom || activityTo ? 'No activity in this range.' : 'Nothing logged yet.'}
               </p>
             ) : (
-              <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800">
+              <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800 overflow-hidden">
                 {filteredActivity.map((a) => (
                   <div key={`${a.kind}-${a.id}`} className="flex items-start justify-between px-4 py-3 text-sm">
                     <div>
