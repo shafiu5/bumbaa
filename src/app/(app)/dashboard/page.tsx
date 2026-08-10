@@ -15,6 +15,7 @@ import {
 import { Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { stockColorClass } from '@/lib/stock'
+import { currentMonthRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
 import type { LocationStock, VesselUsage } from '@/lib/types'
 
@@ -195,10 +196,10 @@ export default function DashboardPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [chartFrom, setChartFrom] = useState('')
-  const [chartTo, setChartTo] = useState('')
-  const [activityFrom, setActivityFrom] = useState('')
-  const [activityTo, setActivityTo] = useState('')
+  const [chartFrom, setChartFrom] = useState(() => currentMonthRange().from)
+  const [chartTo, setChartTo] = useState(() => currentMonthRange().to)
+  const [activityFrom, setActivityFrom] = useState(() => currentMonthRange().from)
+  const [activityTo, setActivityTo] = useState(() => currentMonthRange().to)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   async function refresh() {

@@ -15,6 +15,7 @@ import {
 import { ArrowLeft, Pencil, Plus, Sliders, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { stockColorClass } from '@/lib/stock'
+import { currentMonthRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
 import type { Location } from '@/lib/types'
 
@@ -66,8 +67,8 @@ export default function LocationDetailPage() {
   const [savingThreshold, setSavingThreshold] = useState(false)
   const [thresholdError, setThresholdError] = useState<string | null>(null)
 
-  const [chartFrom, setChartFrom] = useState('')
-  const [chartTo, setChartTo] = useState('')
+  const [chartFrom, setChartFrom] = useState(() => currentMonthRange().from)
+  const [chartTo, setChartTo] = useState(() => currentMonthRange().to)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null)
