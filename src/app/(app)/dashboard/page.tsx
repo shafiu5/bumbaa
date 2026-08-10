@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
-  Legend,
+  Cell,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -32,13 +34,15 @@ type Activity = {
   avgCostPerUnit: number | null
 }
 
-type ChartRow = { date: string; stock: number; [vesselId: string]: number | string }
+type ChartRow = { date: string; stock: number }
+type VesselEntry = { vesselId: string; date: string; quantity: number }
 
 type DashboardData = {
   stock: LocationStock[]
   usage: VesselUsage[]
   activity: Activity[]
   chartData: ChartRow[]
+  vesselEntries: VesselEntry[]
 }
 
 type DeliveryRow = {
@@ -163,28 +167,37 @@ async function fetchDashboardData(
   ].sort()
 
   let runningStock = 0
-  const vesselRunning: Record<string, number> = Object.fromEntries(usage.map((v) => [v.vessel_id, 0]))
   const chartData: ChartRow[] = allDates.map((date) => {
     for (const d of deliveriesByDate.get(date) ?? []) runningStock += d.quantity
-    for (const e of entriesByDate.get(date) ?? []) {
-      runningStock -= e.quantity
-      vesselRunning[e.vessel_id] = (vesselRunning[e.vessel_id] ?? 0) + e.quantity
-    }
+    for (const e of entriesByDate.get(date) ?? []) runningStock -= e.quantity
     for (const a of adjustmentsByDate.get(date) ?? []) runningStock += a.quantity
-    return { date, stock: runningStock, ...vesselRunning }
+    return { date, stock: runningStock }
   })
+
+  const vesselEntries: VesselEntry[] = entries.map((e) => ({
+    vesselId: e.vessel_id,
+    date: e.filled_at,
+    quantity: e.quantity,
+  }))
 
   return {
     stock: (stockRes.data as LocationStock[]) ?? [],
     usage,
     activity,
     chartData,
+    vesselEntries,
   }
 }
 
 export default function DashboardPage() {
   const supabase = createClient()
-  const [data, setData] = useState<DashboardData>({ stock: [], usage: [], activity: [], chartData: [] })
+  const [data, setData] = useState<DashboardData>({
+    stock: [],
+    usage: [],
+    activity: [],
+    chartData: [],
+    vesselEntries: [],
+  })
   const [loading, setLoading] = useState(true)
 
   const [showLogFuel, setShowLogFuel] = useState(false)
@@ -233,7 +246,7 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const { stock, usage, activity, chartData } = data
+  const { stock, usage, activity, chartData, vesselEntries } = data
   const effectiveVesselId = vesselId || usage[0]?.vessel_id || ''
   const effectiveLocationId = locationId || stock[0]?.location_id || ''
 
@@ -244,6 +257,18 @@ export default function DashboardPage() {
       ),
     [chartData, chartFrom, chartTo]
   )
+
+  const vesselUsageInRange = useMemo(() => {
+    const totals = new Map<string, number>()
+    for (const e of vesselEntries) {
+      if (chartFrom && e.date < chartFrom) continue
+      if (chartTo && e.date > chartTo) continue
+      totals.set(e.vesselId, (totals.get(e.vesselId) ?? 0) + e.quantity)
+    }
+    return usage
+      .map((v) => ({ vesselId: v.vessel_id, name: v.name, total: totals.get(v.vessel_id) ?? 0 }))
+      .sort((a, b) => b.total - a.total)
+  }, [vesselEntries, usage, chartFrom, chartTo])
 
   const filteredActivity = useMemo(() => {
     if (!activityFrom && !activityTo) return activity.slice(0, 8)
@@ -378,39 +403,43 @@ export default function DashboardPage() {
           </div>
 
           <section>
-            <h2 className="font-semibold mb-2">Fleet-wide stock &amp; usage</h2>
+            <h2 className="font-semibold mb-2">Stock over time</h2>
             <DateRangeFilter from={chartFrom} to={chartTo} onFromChange={setChartFrom} onToChange={setChartTo} />
             {filteredChartData.length === 0 ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">No activity in this range.</p>
             ) : (
-              <div className="h-64 rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-2">
+              <div className="h-56 rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={filteredChartData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-neutral-800" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip formatter={(v: number, key: string) => [`${v.toLocaleString()} L`, key]} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line
-                      type="stepAfter"
-                      dataKey="stock"
-                      name="Total stock"
-                      stroke="#0284c7"
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                    {usage.map((v, i) => (
-                      <Line
-                        key={v.vessel_id}
-                        type="monotone"
-                        dataKey={v.vessel_id}
-                        name={v.name}
-                        stroke={VESSEL_COLORS[i % VESSEL_COLORS.length]}
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    ))}
+                    <Tooltip formatter={(v: number) => [`${v.toLocaleString()} L`, 'Stock']} />
+                    <Line type="stepAfter" dataKey="stock" stroke="#0284c7" strokeWidth={2} dot={false} />
                   </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h2 className="font-semibold mb-2">Fuel used by vessel</h2>
+            {vesselUsageInRange.length === 0 || vesselUsageInRange.every((v) => v.total === 0) ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">No fuel used in this range.</p>
+            ) : (
+              <div className="h-56 rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={vesselUsageInRange}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-neutral-800" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip formatter={(v: number) => [`${v.toLocaleString()} L`, 'Used']} />
+                    <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+                      {vesselUsageInRange.map((v, i) => (
+                        <Cell key={v.vesselId} fill={VESSEL_COLORS[i % VESSEL_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
