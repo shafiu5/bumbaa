@@ -75,6 +75,12 @@ export default function LocationDetailPage() {
   const [savingEditPrice, setSavingEditPrice] = useState(false)
   const [editPriceError, setEditPriceError] = useState<string | null>(null)
 
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  const [editEntryQuantity, setEditEntryQuantity] = useState('')
+  const [editEntryDate, setEditEntryDate] = useState('')
+  const [savingEditEntry, setSavingEditEntry] = useState(false)
+  const [editEntryError, setEditEntryError] = useState<string | null>(null)
+
   useEffect(() => {
     if (id) load()
   }, [id])
@@ -214,6 +220,36 @@ export default function LocationDetailPage() {
       return
     }
     cancelEditPrice()
+    load()
+  }
+
+  function startEditEntry(entry: { id: string; quantity: number; date: string }) {
+    setEditingEntryId(entry.id)
+    setEditEntryError(null)
+    setEditEntryQuantity(entry.quantity.toString())
+    setEditEntryDate(entry.date)
+  }
+
+  function cancelEditEntry() {
+    setEditingEntryId(null)
+    setEditEntryQuantity('')
+    setEditEntryDate('')
+    setEditEntryError(null)
+  }
+
+  async function saveEditEntry(entryId: string) {
+    setSavingEditEntry(true)
+    setEditEntryError(null)
+    const { error } = await supabase
+      .from('fuel_entries')
+      .update({ quantity: Number(editEntryQuantity), filled_at: editEntryDate })
+      .eq('id', entryId)
+    setSavingEditEntry(false)
+    if (error) {
+      setEditEntryError(error.message)
+      return
+    }
+    cancelEditEntry()
     load()
   }
 
@@ -534,7 +570,19 @@ export default function LocationDetailPage() {
                           ? `Dispensed → ${t.label}`
                           : `Adjustment: ${t.label}`}
                     </p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500">{t.date}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      {t.date}
+                      {t.kind === 'dispense' && editingEntryId !== t.id && (
+                        <button
+                          type="button"
+                          onClick={() => startEditEntry(t)}
+                          className="inline-flex items-center gap-0.5 text-sky-600 dark:text-sky-400 ml-1"
+                        >
+                          <Pencil size={11} strokeWidth={1.75} />
+                          Edit
+                        </button>
+                      )}
+                    </p>
                     {t.kind === 'delivery' && editingDeliveryId !== t.id && (
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         {t.totalCost != null ? (
@@ -568,7 +616,7 @@ export default function LocationDetailPage() {
                       {t.kind === 'dispense' ? '−' : t.quantity < 0 ? '−' : '+'}
                       {Math.abs(t.quantity).toLocaleString()} L
                     </span>
-                    {t.kind === 'dispense' && (
+                    {t.kind === 'dispense' && editingEntryId !== t.id && (
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         {t.totalCost != null
                           ? `≈ ${t.totalCost.toLocaleString(undefined, {
@@ -583,6 +631,53 @@ export default function LocationDetailPage() {
                     )}
                   </div>
                 </div>
+
+                {t.kind === 'dispense' && editingEntryId === t.id && (
+                  <div className="mt-2 flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Quantity (litres)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        autoFocus
+                        value={editEntryQuantity}
+                        onChange={(e) => setEditEntryQuantity(e.target.value)}
+                        placeholder="Quantity (litres)"
+                        className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
+                      <input
+                        type="date"
+                        value={editEntryDate}
+                        onChange={(e) => setEditEntryDate(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={savingEditEntry}
+                      onClick={() => saveEditEntry(t.id)}
+                      className="rounded-lg bg-sky-600 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                    >
+                      {savingEditEntry ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEditEntry}
+                      className="rounded-lg border border-gray-300 dark:border-neutral-700 px-3 py-1.5 text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {t.kind === 'dispense' && editingEntryId === t.id && editEntryError && (
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">{editEntryError}</p>
+                )}
 
                 {t.kind === 'delivery' && editingDeliveryId === t.id && (
                   <div className="mt-2 flex items-end gap-2">
