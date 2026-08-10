@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -270,6 +270,11 @@ export default function DashboardPage() {
       .sort((a, b) => b.total - a.total)
   }, [vesselEntries, usage, chartFrom, chartTo])
 
+  function vesselColor(vesselId: string) {
+    const idx = vesselUsageInRange.findIndex((v) => v.vesselId === vesselId)
+    return VESSEL_COLORS[idx % VESSEL_COLORS.length]
+  }
+
   const filteredActivity = useMemo(() => {
     if (!activityFrom && !activityTo) return activity.slice(0, 8)
     return activity
@@ -427,20 +432,42 @@ export default function DashboardPage() {
             {vesselUsageInRange.length === 0 || vesselUsageInRange.every((v) => v.total === 0) ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">No fuel used in this range.</p>
             ) : (
-              <div className="h-56 rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={vesselUsageInRange}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-neutral-800" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip formatter={(v: number) => [`${v.toLocaleString()} L`, 'Used']} />
-                    <Bar dataKey="total" radius={[4, 4, 0, 0]}>
-                      {vesselUsageInRange.map((v, i) => (
-                        <Cell key={v.vesselId} fill={VESSEL_COLORS[i % VESSEL_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={vesselUsageInRange.filter((v) => v.total > 0)}
+                        dataKey="total"
+                        nameKey="name"
+                        innerRadius={45}
+                        outerRadius={75}
+                        paddingAngle={2}
+                      >
+                        {vesselUsageInRange
+                          .filter((v) => v.total > 0)
+                          .map((v) => (
+                            <Cell key={v.vesselId} fill={vesselColor(v.vesselId)} />
+                          ))}
+                      </Pie>
+                      <Tooltip formatter={(v: number) => [`${v.toLocaleString()} L`, 'Used']} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="mt-3 divide-y divide-gray-100 dark:divide-neutral-800">
+                  {vesselUsageInRange.map((v) => (
+                    <div key={v.vesselId} className="flex items-center justify-between py-2 text-sm">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: vesselColor(v.vesselId) }}
+                        />
+                        {v.name}
+                      </span>
+                      <span className="font-medium">{v.total.toLocaleString()} L</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </section>
