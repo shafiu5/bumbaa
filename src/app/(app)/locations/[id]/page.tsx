@@ -17,6 +17,7 @@ import { createClient } from '@/lib/supabase/client'
 import { stockColorClass } from '@/lib/stock'
 import { currentMonthRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
+import { Skeleton, SkeletonChart, SkeletonHeader, SkeletonList } from '@/components/Skeleton'
 import type { Location } from '@/lib/types'
 
 type DeliveryRow = { id: string; quantity: number; total_cost: number | null; delivered_at: string; notes: string }
@@ -308,7 +309,14 @@ export default function LocationDetailPage() {
   )
 
   if (loading) {
-    return <main className="max-w-2xl mx-auto px-4 py-6 text-gray-400 dark:text-gray-500">Loading…</main>
+    return (
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        <SkeletonHeader />
+        <Skeleton className="h-20 rounded-2xl" />
+        <SkeletonChart />
+        <SkeletonList rows={4} />
+      </main>
+    )
   }
   if (loadError) {
     return (

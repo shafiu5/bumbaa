@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { SkeletonList } from '@/components/Skeleton'
 import type { VesselUsage } from '@/lib/types'
 
 export default function VesselsPage() {
@@ -94,7 +95,7 @@ export default function VesselsPage() {
       )}
 
       {loading ? (
-        <p className="text-gray-400 dark:text-gray-500">Loading…</p>
+        <SkeletonList rows={4} />
       ) : loadError ? (
         <div className="rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-4 space-y-2">
           <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>

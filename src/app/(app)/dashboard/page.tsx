@@ -19,9 +19,12 @@ import { createClient } from '@/lib/supabase/client'
 import { stockColorClass } from '@/lib/stock'
 import { currentMonthRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
+import { Skeleton, SkeletonCard, SkeletonChart, SkeletonList } from '@/components/Skeleton'
 import type { LocationStock, VesselUsage } from '@/lib/types'
 
 const VESSEL_COLORS = ['#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1']
+const MAX_AUTO_RETRIES = 4
+const RETRY_DELAY_MS = 2000
 
 type Activity = {
   id: string
@@ -229,18 +232,29 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false
-    fetchDashboardData(supabase)
-      .then((result) => {
-        if (cancelled) return
-        setData(result)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setLoadError(err instanceof Error ? err.message : 'Failed to load the dashboard.')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+
+    function attemptLoad(attempt: number) {
+      fetchDashboardData(supabase)
+        .then((result) => {
+          if (cancelled) return
+          setData(result)
+          setLoadError(null)
+          setLoading(false)
+        })
+        .catch((err) => {
+          if (cancelled) return
+          if (attempt < MAX_AUTO_RETRIES) {
+            setTimeout(() => {
+              if (!cancelled) attemptLoad(attempt + 1)
+            }, RETRY_DELAY_MS)
+          } else {
+            setLoadError(err instanceof Error ? err.message : 'Failed to load the dashboard.')
+            setLoading(false)
+          }
+        })
+    }
+
+    attemptLoad(0)
     return () => {
       cancelled = true
     }
@@ -386,10 +400,28 @@ export default function DashboardPage() {
       )}
 
       {loading ? (
-        <p className="text-gray-400 dark:text-gray-500">Loading…</p>
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-3">
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+          <SkeletonChart heightClass="h-56" />
+          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 flex items-center gap-4">
+            <Skeleton className="h-40 w-40 rounded-full shrink-0" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+          </div>
+          <SkeletonList rows={3} />
+          <SkeletonList rows={4} />
+        </div>
       ) : loadError ? (
         <div className="rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-4 space-y-2">
-          <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+          <p className="text-sm text-red-600 dark:text-red-400">
+            Still failing after retrying automatically: {loadError}
+          </p>
           <button onClick={refresh} className="text-sm font-medium text-sky-600 dark:text-sky-400">
             Retry
           </button>

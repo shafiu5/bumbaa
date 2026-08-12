@@ -16,6 +16,7 @@ import { ArrowLeft, Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { lastNMonthsRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
+import { SkeletonChart, SkeletonHeader, SkeletonList } from '@/components/Skeleton'
 import type { Location, Vessel } from '@/lib/types'
 
 type EntryRow = {
@@ -129,7 +130,13 @@ export default function VesselDetailPage() {
   const totalUsed = entries.reduce((sum, e) => sum + Number(e.quantity), 0)
 
   if (loading) {
-    return <main className="max-w-2xl mx-auto px-4 py-6 text-gray-400 dark:text-gray-500">Loading…</main>
+    return (
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        <SkeletonHeader />
+        <SkeletonChart />
+        <SkeletonList rows={4} />
+      </main>
+    )
   }
   if (loadError) {
     return (
