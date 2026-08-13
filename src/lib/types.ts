@@ -58,19 +58,3 @@ export type VesselUsage = {
   total_used: number
   fill_count: number
 }
-
-export type LocationAvgCost = {
-  location_id: string
-  avg_cost_per_unit: number | null
-}
-
-export type FuelEntryCost = {
-  id: string
-  vessel_id: string
-  location_id: string
-  filled_at: string
-  quantity: number
-  unit_cost: number | null
-  cost: number | null
-  notes: string
-}

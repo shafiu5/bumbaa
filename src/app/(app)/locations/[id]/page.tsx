@@ -18,13 +18,22 @@ import { stockColorClass } from '@/lib/stock'
 import { currentMonthRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
 import { Skeleton, SkeletonChart, SkeletonHeader, SkeletonList } from '@/components/Skeleton'
+import { computeFifoCosts } from '@/lib/fifoCost'
 import type { Location } from '@/lib/types'
 
-type DeliveryRow = { id: string; quantity: number; total_cost: number | null; delivered_at: string; notes: string }
+type DeliveryRow = {
+  id: string
+  quantity: number
+  total_cost: number | null
+  delivered_at: string
+  created_at: string
+  notes: string
+}
 type EntryRow = {
   id: string
   quantity: number
   filled_at: string
+  created_at: string
   notes: string
   vessels: { name: string } | null
 }
@@ -37,6 +46,7 @@ type TimelineItem = {
   quantity: number
   label: string
   totalCost?: number | null
+  unitCost?: number | null
 }
 
 export default function LocationDetailPage() {
@@ -95,12 +105,12 @@ export default function LocationDetailPage() {
         supabase.from('locations').select('*').eq('id', id).maybeSingle(),
         supabase
           .from('deliveries')
-          .select('id, quantity, total_cost, delivered_at, notes')
+          .select('id, quantity, total_cost, delivered_at, created_at, notes')
           .eq('location_id', id)
           .order('delivered_at', { ascending: false }),
         supabase
           .from('fuel_entries')
-          .select('id, quantity, filled_at, notes, vessels(name)')
+          .select('id, quantity, filled_at, created_at, notes, vessels(name)')
           .eq('location_id', id)
           .order('filled_at', { ascending: false }),
         supabase
@@ -255,13 +265,14 @@ export default function LocationDetailPage() {
     load()
   }
 
-  const avgCostPerUnit = useMemo(() => {
-    const costed = deliveries.filter((d) => d.total_cost != null)
-    const totalQty = costed.reduce((sum, d) => sum + d.quantity, 0)
-    if (totalQty === 0) return null
-    const totalCost = costed.reduce((sum, d) => sum + (d.total_cost ?? 0), 0)
-    return totalCost / totalQty
-  }, [deliveries])
+  const fifoCosts = useMemo(
+    () =>
+      computeFifoCosts(
+        deliveries.map((d) => ({ ...d, location_id: id })),
+        entries.map((e) => ({ ...e, location_id: id }))
+      ),
+    [deliveries, entries, id]
+  )
 
   const timeline: TimelineItem[] = useMemo(() => {
     const d: TimelineItem[] = deliveries.map((x) => ({
@@ -278,7 +289,8 @@ export default function LocationDetailPage() {
       date: x.filled_at,
       quantity: x.quantity,
       label: x.vessels?.name ?? 'Vessel',
-      totalCost: avgCostPerUnit != null ? x.quantity * avgCostPerUnit : null,
+      totalCost: fifoCosts.get(x.id)?.cost ?? null,
+      unitCost: fifoCosts.get(x.id)?.unitCost ?? null,
     }))
     const a: TimelineItem[] = adjustments.map((x) => ({
       id: x.id,
@@ -288,7 +300,7 @@ export default function LocationDetailPage() {
       label: x.notes || (x.quantity >= 0 ? 'Stock added' : 'Stock removed'),
     }))
     return [...d, ...e, ...a].sort((a, b) => (a.date < b.date ? -1 : 1))
-  }, [deliveries, entries, adjustments, avgCostPerUnit])
+  }, [deliveries, entries, adjustments, fifoCosts])
 
   const chartData = useMemo(() => {
     let running = 0
@@ -631,7 +643,7 @@ export default function LocationDetailPage() {
                           ? `≈ ${t.totalCost.toLocaleString(undefined, {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
-                            })} (at avg ${avgCostPerUnit!.toLocaleString(undefined, {
+                            })} (${t.unitCost!.toLocaleString(undefined, {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
                             })}/L)`

@@ -17,17 +17,18 @@ import { createClient } from '@/lib/supabase/client'
 import { lastNMonthsRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
 import { SkeletonChart, SkeletonHeader, SkeletonList } from '@/components/Skeleton'
+import { computeFifoCosts, type DeliveryForCosting, type EntryForCosting } from '@/lib/fifoCost'
 import type { Location, Vessel } from '@/lib/types'
 
 type EntryRow = {
   id: string
   quantity: number
   filled_at: string
+  created_at: string
   notes: string
   location_id: string
   locations: { name: string } | null
 }
-type LocationAvgCostRow = { location_id: string; avg_cost_per_unit: number | null }
 
 export default function VesselDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -35,7 +36,9 @@ export default function VesselDetailPage() {
   const [vessel, setVessel] = useState<Vessel | null>(null)
   const [entries, setEntries] = useState<EntryRow[]>([])
   const [locations, setLocations] = useState<Location[]>([])
-  const [avgCostByLocation, setAvgCostByLocation] = useState<Map<string, number>>(new Map())
+  const [entryCosts, setEntryCosts] = useState<Map<string, { cost: number | null; unitCost: number | null }>>(
+    new Map()
+  )
   const [loading, setLoading] = useState(true)
 
   const [showAdd, setShowAdd] = useState(false)
@@ -58,32 +61,50 @@ export default function VesselDetailPage() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [vesselRes, entriesRes, locationsRes, avgCostRes] = await Promise.all([
+      const [vesselRes, entriesRes, locationsRes] = await Promise.all([
         supabase.from('vessels').select('*').eq('id', id).maybeSingle(),
         supabase
           .from('fuel_entries')
-          .select('id, quantity, filled_at, notes, location_id, locations(name)')
+          .select('id, quantity, filled_at, created_at, notes, location_id, locations(name)')
           .eq('vessel_id', id)
           .order('filled_at', { ascending: false }),
         supabase.from('locations').select('*').order('name'),
-        supabase.from('location_avg_cost').select('location_id, avg_cost_per_unit'),
       ])
       if (vesselRes.error) throw vesselRes.error
       if (entriesRes.error) throw entriesRes.error
       if (locationsRes.error) throw locationsRes.error
-      if (avgCostRes.error) throw avgCostRes.error
+      const vesselEntries = (entriesRes.data as unknown as EntryRow[]) ?? []
       setVessel(vesselRes.data as Vessel)
-      setEntries((entriesRes.data as unknown as EntryRow[]) ?? [])
+      setEntries(vesselEntries)
       setLocations((locationsRes.data as Location[]) ?? [])
-      setAvgCostByLocation(
-        new Map(
-          ((avgCostRes.data as LocationAvgCostRow[]) ?? [])
-            .filter((r) => r.avg_cost_per_unit != null)
-            .map((r) => [r.location_id, r.avg_cost_per_unit as number])
-        )
-      )
       if (!locationId && locationsRes.data?.[0]) {
         setLocationId(locationsRes.data[0].id)
+      }
+
+      // FIFO cost depletes shared per-location batches, so pricing this
+      // vessel's fills correctly requires every vessel's fills at the same
+      // locations, not just this vessel's own fuel_entries.
+      const locationIds = [...new Set(vesselEntries.map((e) => e.location_id))]
+      if (locationIds.length > 0) {
+        const [allDeliveriesRes, allEntriesRes] = await Promise.all([
+          supabase
+            .from('deliveries')
+            .select('id, quantity, total_cost, delivered_at, created_at, location_id')
+            .in('location_id', locationIds),
+          supabase
+            .from('fuel_entries')
+            .select('id, quantity, filled_at, created_at, location_id')
+            .in('location_id', locationIds),
+        ])
+        if (allDeliveriesRes.error) throw allDeliveriesRes.error
+        if (allEntriesRes.error) throw allEntriesRes.error
+        const fifo = computeFifoCosts(
+          (allDeliveriesRes.data as DeliveryForCosting[]) ?? [],
+          (allEntriesRes.data as EntryForCosting[]) ?? []
+        )
+        setEntryCosts(fifo)
+      } else {
+        setEntryCosts(new Map())
       }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load this vessel.')
@@ -271,8 +292,7 @@ export default function VesselDetailPage() {
         ) : (
           <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 divide-y divide-gray-100 dark:divide-neutral-800 overflow-hidden">
             {entries.map((e) => {
-              const avgCostPerUnit = avgCostByLocation.get(e.location_id) ?? null
-              const cost = avgCostPerUnit != null ? Number(e.quantity) * avgCostPerUnit : null
+              const fifo = entryCosts.get(e.id)
               return (
                 <div key={e.id} className="flex items-start justify-between px-4 py-3 text-sm">
                   <div>
@@ -285,11 +305,11 @@ export default function VesselDetailPage() {
                   <div className="text-right">
                     <span className="font-medium">{Number(e.quantity).toLocaleString()} L</span>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                      {cost != null
-                        ? `≈ ${cost.toLocaleString(undefined, {
+                      {fifo?.cost != null
+                        ? `≈ ${fifo.cost.toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
-                          })} (avg ${avgCostPerUnit!.toLocaleString(undefined, {
+                          })} (${fifo.unitCost!.toLocaleString(undefined, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}/L)`

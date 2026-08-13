@@ -20,6 +20,7 @@ import { stockColorClass } from '@/lib/stock'
 import { currentMonthRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
 import { Skeleton, SkeletonCard, SkeletonChart, SkeletonList } from '@/components/Skeleton'
+import { computeFifoCosts } from '@/lib/fifoCost'
 import type { LocationStock, VesselUsage } from '@/lib/types'
 
 const VESSEL_COLORS = ['#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1']
@@ -34,7 +35,7 @@ type Activity = {
   location_name: string
   vessel_name: string | null
   cost: number | null
-  avgCostPerUnit: number | null
+  unitCost: number | null
 }
 
 type ChartRow = { date: string; stock: number }
@@ -53,6 +54,7 @@ type DeliveryRow = {
   quantity: number
   total_cost: number | null
   delivered_at: string
+  created_at: string
   location_id: string
   locations: { name: string } | null
 }
@@ -60,6 +62,7 @@ type EntryRow = {
   id: string
   quantity: number
   filled_at: string
+  created_at: string
   vessel_id: string
   location_id: string
   locations: { name: string } | null
@@ -80,11 +83,11 @@ async function fetchDashboardData(
     supabase.from('vessel_usage').select('*').order('total_used', { ascending: false }),
     supabase
       .from('deliveries')
-      .select('id, quantity, total_cost, delivered_at, location_id, locations(name)')
+      .select('id, quantity, total_cost, delivered_at, created_at, location_id, locations(name)')
       .order('delivered_at', { ascending: true }),
     supabase
       .from('fuel_entries')
-      .select('id, quantity, filled_at, vessel_id, location_id, locations(name), vessels(name)')
+      .select('id, quantity, filled_at, created_at, vessel_id, location_id, locations(name), vessels(name)')
       .order('filled_at', { ascending: true }),
     supabase
       .from('adjustments')
@@ -102,18 +105,7 @@ async function fetchDashboardData(
   const adjustments = (adjustmentsRes.data as unknown as AdjustmentRow[]) ?? []
   const usage = (usageRes.data as VesselUsage[]) ?? []
 
-  const costedByLocation = new Map<string, { totalCost: number; totalQty: number }>()
-  for (const d of deliveries) {
-    if (d.total_cost == null) continue
-    const agg = costedByLocation.get(d.location_id) ?? { totalCost: 0, totalQty: 0 }
-    agg.totalCost += d.total_cost
-    agg.totalQty += d.quantity
-    costedByLocation.set(d.location_id, agg)
-  }
-  const avgCostByLocation = new Map<string, number>()
-  for (const [locationId, agg] of costedByLocation) {
-    if (agg.totalQty > 0) avgCostByLocation.set(locationId, agg.totalCost / agg.totalQty)
-  }
+  const fifoCosts = computeFifoCosts(deliveries, entries)
 
   const deliveryActivity: Activity[] = deliveries.map((d) => ({
     id: d.id,
@@ -123,10 +115,10 @@ async function fetchDashboardData(
     location_name: d.locations?.name ?? '—',
     vessel_name: null,
     cost: d.total_cost,
-    avgCostPerUnit: null,
+    unitCost: null,
   }))
   const entryActivity: Activity[] = entries.map((f) => {
-    const avgCostPerUnit = avgCostByLocation.get(f.location_id) ?? null
+    const fifo = fifoCosts.get(f.id)
     return {
       id: f.id,
       kind: 'fuel_entry',
@@ -134,8 +126,8 @@ async function fetchDashboardData(
       quantity: f.quantity,
       location_name: f.locations?.name ?? '—',
       vessel_name: f.vessels?.name ?? '—',
-      cost: avgCostPerUnit != null ? f.quantity * avgCostPerUnit : null,
-      avgCostPerUnit,
+      cost: fifo?.cost ?? null,
+      unitCost: fifo?.unitCost ?? null,
     }
   })
   const adjustmentActivity: Activity[] = adjustments.map((a) => ({
@@ -146,7 +138,7 @@ async function fetchDashboardData(
     location_name: a.locations?.name ?? '—',
     vessel_name: null,
     cost: null,
-    avgCostPerUnit: null,
+    unitCost: null,
   }))
   const activity = [...deliveryActivity, ...entryActivity, ...adjustmentActivity].sort((a, b) =>
     a.date < b.date ? 1 : -1
@@ -579,7 +571,7 @@ export default function DashboardPage() {
                             ? `≈ ${a.cost.toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
-                              })} (avg ${a.avgCostPerUnit!.toLocaleString(undefined, {
+                              })} (${a.unitCost!.toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                               })}/L)`
