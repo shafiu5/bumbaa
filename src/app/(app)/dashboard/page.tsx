@@ -2,24 +2,13 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import {
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { stockColorClass } from '@/lib/stock'
 import { currentMonthRange } from '@/lib/dateRange'
 import DateRangeFilter from '@/components/DateRangeFilter'
-import { Skeleton, SkeletonCard, SkeletonChart, SkeletonList } from '@/components/Skeleton'
+import { Skeleton, SkeletonCard, SkeletonList } from '@/components/Skeleton'
 import { computeFifoCosts } from '@/lib/fifoCost'
 import type { LocationStock, VesselUsage } from '@/lib/types'
 
@@ -38,14 +27,12 @@ type Activity = {
   unitCost: number | null
 }
 
-type ChartRow = { date: string; stock: number }
 type VesselEntry = { vesselId: string; date: string; quantity: number }
 
 type DashboardData = {
   stock: LocationStock[]
   usage: VesselUsage[]
   activity: Activity[]
-  chartData: ChartRow[]
   vesselEntries: VesselEntry[]
 }
 
@@ -144,31 +131,6 @@ async function fetchDashboardData(
     a.date < b.date ? 1 : -1
   )
 
-  const deliveriesByDate = new Map<string, DeliveryRow[]>()
-  for (const d of deliveries) {
-    deliveriesByDate.set(d.delivered_at, [...(deliveriesByDate.get(d.delivered_at) ?? []), d])
-  }
-  const entriesByDate = new Map<string, EntryRow[]>()
-  for (const e of entries) {
-    entriesByDate.set(e.filled_at, [...(entriesByDate.get(e.filled_at) ?? []), e])
-  }
-  const adjustmentsByDate = new Map<string, AdjustmentRow[]>()
-  for (const a of adjustments) {
-    adjustmentsByDate.set(a.adjusted_at, [...(adjustmentsByDate.get(a.adjusted_at) ?? []), a])
-  }
-
-  const allDates = [
-    ...new Set([...deliveriesByDate.keys(), ...entriesByDate.keys(), ...adjustmentsByDate.keys()]),
-  ].sort()
-
-  let runningStock = 0
-  const chartData: ChartRow[] = allDates.map((date) => {
-    for (const d of deliveriesByDate.get(date) ?? []) runningStock += d.quantity
-    for (const e of entriesByDate.get(date) ?? []) runningStock -= e.quantity
-    for (const a of adjustmentsByDate.get(date) ?? []) runningStock += a.quantity
-    return { date, stock: runningStock }
-  })
-
   const vesselEntries: VesselEntry[] = entries.map((e) => ({
     vesselId: e.vessel_id,
     date: e.filled_at,
@@ -179,7 +141,6 @@ async function fetchDashboardData(
     stock: (stockRes.data as LocationStock[]) ?? [],
     usage,
     activity,
-    chartData,
     vesselEntries,
   }
 }
@@ -190,7 +151,6 @@ export default function DashboardPage() {
     stock: [],
     usage: [],
     activity: [],
-    chartData: [],
     vesselEntries: [],
   })
   const [loading, setLoading] = useState(true)
@@ -252,17 +212,9 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const { stock, usage, activity, chartData, vesselEntries } = data
+  const { stock, usage, activity, vesselEntries } = data
   const effectiveVesselId = vesselId || usage[0]?.vessel_id || ''
   const effectiveLocationId = locationId || stock[0]?.location_id || ''
-
-  const filteredChartData = useMemo(
-    () =>
-      chartData.filter(
-        (d) => (!chartFrom || d.date >= chartFrom) && (!chartTo || d.date <= chartTo)
-      ),
-    [chartData, chartFrom, chartTo]
-  )
 
   const vesselUsageInRange = useMemo(() => {
     const totals = new Map<string, number>()
@@ -397,7 +349,6 @@ export default function DashboardPage() {
             <SkeletonCard />
             <SkeletonCard />
           </div>
-          <SkeletonChart heightClass="h-56" />
           <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 flex items-center gap-4">
             <Skeleton className="h-40 w-40 rounded-full shrink-0" />
             <div className="flex-1 space-y-2">
@@ -432,27 +383,8 @@ export default function DashboardPage() {
           </div>
 
           <section>
-            <h2 className="font-semibold mb-2">Stock over time</h2>
-            <DateRangeFilter from={chartFrom} to={chartTo} onFromChange={setChartFrom} onToChange={setChartTo} />
-            {filteredChartData.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">No activity in this range.</p>
-            ) : (
-              <div className="h-56 rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={filteredChartData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-neutral-800" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                    <Tooltip formatter={(v: number) => [`${v.toLocaleString()} L`, 'Stock']} />
-                    <Line type="stepAfter" dataKey="stock" stroke="#0284c7" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </section>
-
-          <section>
             <h2 className="font-semibold mb-2">Fuel used by vessel</h2>
+            <DateRangeFilter from={chartFrom} to={chartTo} onFromChange={setChartFrom} onToChange={setChartTo} />
             {vesselUsageInRange.length === 0 || vesselUsageInRange.every((v) => v.total === 0) ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">No fuel used in this range.</p>
             ) : (
