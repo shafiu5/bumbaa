@@ -320,6 +320,22 @@ export default function LocationDetailPage() {
     [chartData, chartFrom, chartTo]
   )
 
+  const usedInRange = useMemo(
+    () =>
+      entries
+        .filter((e) => (!chartFrom || e.filled_at >= chartFrom) && (!chartTo || e.filled_at <= chartTo))
+        .reduce((sum, e) => sum + Number(e.quantity), 0),
+    [entries, chartFrom, chartTo]
+  )
+
+  const deliveredInRange = useMemo(
+    () =>
+      deliveries
+        .filter((d) => (!chartFrom || d.delivered_at >= chartFrom) && (!chartTo || d.delivered_at <= chartTo))
+        .reduce((sum, d) => sum + Number(d.quantity), 0),
+    [deliveries, chartFrom, chartTo]
+  )
+
   if (loading) {
     return (
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
@@ -413,6 +429,16 @@ export default function LocationDetailPage() {
       <section>
         <h2 className="font-semibold mb-2">Stock over time</h2>
         <DateRangeFilter from={chartFrom} to={chartTo} onFromChange={setChartFrom} onToChange={setChartTo} />
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Used in this range</p>
+            <p className="text-lg font-bold">{usedInRange.toLocaleString()} L</p>
+          </div>
+          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Delivered in this range</p>
+            <p className="text-lg font-bold">{deliveredInRange.toLocaleString()} L</p>
+          </div>
+        </div>
         {filteredChartData.length === 0 ? (
           <p className="text-sm text-gray-400 dark:text-gray-500">No activity in this range.</p>
         ) : (
