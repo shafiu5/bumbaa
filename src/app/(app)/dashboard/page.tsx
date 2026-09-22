@@ -66,7 +66,7 @@ async function fetchDashboardData(
   supabase: ReturnType<typeof createClient>
 ): Promise<DashboardData> {
   const [stockRes, usageRes, deliveriesRes, entriesRes, adjustmentsRes] = await Promise.all([
-    supabase.from('location_stock').select('*').order('name'),
+    supabase.from('location_stock').select('*').order('current_stock', { ascending: false }),
     supabase.from('vessel_usage').select('*').order('total_used', { ascending: false }),
     supabase
       .from('deliveries')
